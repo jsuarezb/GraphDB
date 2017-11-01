@@ -1,5 +1,6 @@
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -10,36 +11,44 @@ import java.util.stream.IntStream;
 
 public class CallMemberGenerator {
 
-    static int MIN_CALL_NUM = 2;
-    static int MAX_CALL_NUM = 5;
-    static double MIN_DURATION = 5;
-    static double MAX_DURATION = 2 * 60 * 60;
+    private static int MIN_CALL_NUM = 2;
+    private static int MAX_CALL_NUM = 5;
+
+    private static double MIN_DURATION = 5;
+    private static double MAX_DURATION = 2 * 60 * 60;
+
+    private static final Path CREATE_SCHEMA_SQL_PATH   = Paths.get("lib/dbschema-create.sql");
+    private static final Path EMISOR_RECEPTOR_SQL_PATH = Paths.get("lib/emisorreceptor.sql");
 
     public static void main(String[] args) throws IOException {
         List<Integer> amounts = Arrays.asList(100, 200, 1000);
-        for (Integer amount : amounts) {
+
+        for (Integer amount : amounts)
             createFile(amount, amount);
-        }
     }
 
-    public static void createFile(int callAmount, int userAmount) throws IOException {
+    private static void createFile(int callAmount, int userAmount) throws IOException {
         Iterator<Integer> memsAmountIt = new Random().ints(MIN_CALL_NUM, MAX_CALL_NUM + 1).iterator();
-        Iterator<Double> durationsIt = new Random().doubles(MIN_DURATION, MAX_DURATION).iterator();
-        List<Integer> userIds = IntStream.range(1, userAmount + 1).mapToObj(x -> x).collect(Collectors.toList());
-        List<Call> calls = new ArrayList<>();
+        Iterator<Double> durationsIt   = new Random().doubles(MIN_DURATION, MAX_DURATION).iterator();
+
         List<RandomDateTime> times = new ArrayList<>();
+        List<Call> calls      = new ArrayList<>();
+        List<Integer> userIds = IntStream.range(1, userAmount + 1).boxed().collect(Collectors.toList());
+
         StringBuilder strBuilder = new StringBuilder();
 
-        Files.readAllLines(Paths.get("dbschema-create.sql")).stream()
-                .forEach(line -> strBuilder.append(line + "\n"));
+        Files.readAllLines(CREATE_SCHEMA_SQL_PATH)
+                .forEach(line -> strBuilder.append(line).append("\n"));
 
-        Files.readAllLines(Paths.get("emisorreceptor.sql")).stream().skip(1000 - userAmount)
-                .forEach(line -> strBuilder.append(line + "\n"));
+        Files.readAllLines(EMISOR_RECEPTOR_SQL_PATH).stream()
+                .skip(1000 - userAmount)
+                .forEach(line -> strBuilder.append(line).append("\n"));
 
         for (int callId = 1; callId <= callAmount; callId++) {
-            Collections.shuffle(userIds);
             RandomDateTime time = new RandomDateTime();
             times.add(time);
+
+            Collections.shuffle(userIds);
             calls.add(new Call(callId, new ArrayList<>(userIds.subList(0, memsAmountIt.next())),
                     callId, durationsIt.next()));
         }
@@ -52,7 +61,7 @@ public class CallMemberGenerator {
             strBuilder.append(call.toCall());
         }
 
-        Files.write(Paths.get(String.format("data(%d-%d).sql", userAmount, callAmount)), strBuilder.toString().getBytes());
+        Files.write(Paths.get(String.format("lib/data(%d-%d).sql", userAmount, callAmount)), strBuilder.toString().getBytes());
     }
 
     public static class RandomDateTime {
@@ -73,17 +82,17 @@ public class CallMemberGenerator {
         }
 
         public String toDateTime() {
-            StringBuilder strBuilder = new StringBuilder();
-            strBuilder.append("INSERT INTO DateTime (Time, Day, Month, Year) VALUES (");
-            strBuilder.append("TIMESTAMP '" + timestamp + "'");
-            strBuilder.append(", ");
-            strBuilder.append(day);
-            strBuilder.append(", ");
-            strBuilder.append(month);
-            strBuilder.append(", ");
-            strBuilder.append(year);
-            strBuilder.append(");\n");
-            return strBuilder.toString();
+            return new StringBuilder()
+                    .append("INSERT INTO DateTime (Time, Day, Month, Year) VALUES (")
+                    .append("TIMESTAMP '" + timestamp + "'")
+                    .append(", ")
+                    .append(day)
+                    .append(", ")
+                    .append(month)
+                    .append(", ")
+                    .append(year)
+                    .append(");\n")
+                    .toString();
         }
     }
 
