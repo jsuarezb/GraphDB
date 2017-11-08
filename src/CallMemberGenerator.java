@@ -1,5 +1,6 @@
 import java.io.IOException;
 import java.nio.file.Files;
+<<<<<<< HEAD
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.sql.Timestamp;
@@ -11,6 +12,14 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+=======
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.*;
+>>>>>>> 58f23333dfabac6788dee87bd34b8c75c718de5c
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -22,6 +31,7 @@ public class CallMemberGenerator {
     private static double MIN_DURATION = 5;
     private static double MAX_DURATION = 2 * 60 * 60;
 
+<<<<<<< HEAD
     private static final String CREATE_SCHEMA_SQL   = "lib/dbschema-create";
     private static final String EMISOR_RECEPTOR_SQL = "lib/emisorreceptor";
 
@@ -115,6 +125,53 @@ public class CallMemberGenerator {
 		Files.write(Paths.get(String.format("lib/data%d.sql", callAmount)), strBuilder.toString().getBytes(), StandardOpenOption.APPEND);
         
         System.out.println("Finished!");
+=======
+    private static final Path CREATE_SCHEMA_SQL_PATH   = Paths.get("lib/dbschema-create.sql");
+    private static final Path EMISOR_RECEPTOR_SQL_PATH = Paths.get("lib/emisorreceptor.sql");
+
+    public static void main(String[] args) throws IOException {
+        List<Integer> amounts = Arrays.asList(100, 200, 1000);
+
+        for (Integer amount : amounts)
+            createFile(amount, amount);
+    }
+
+    private static void createFile(int callAmount, int userAmount) throws IOException {
+        Iterator<Integer> memsAmountIt = new Random().ints(MIN_CALL_NUM, MAX_CALL_NUM + 1).iterator();
+        Iterator<Double> durationsIt   = new Random().doubles(MIN_DURATION, MAX_DURATION).iterator();
+
+        List<RandomDateTime> times = new ArrayList<>();
+        List<Call> calls      = new ArrayList<>();
+        List<Integer> userIds = IntStream.range(1, userAmount + 1).boxed().collect(Collectors.toList());
+
+        StringBuilder strBuilder = new StringBuilder();
+
+        Files.readAllLines(CREATE_SCHEMA_SQL_PATH)
+                .forEach(line -> strBuilder.append(line).append("\n"));
+
+        Files.readAllLines(EMISOR_RECEPTOR_SQL_PATH).stream()
+                .skip(1000 - userAmount)
+                .forEach(line -> strBuilder.append(line).append("\n"));
+
+        for (int callId = 1; callId <= callAmount; callId++) {
+            RandomDateTime time = new RandomDateTime();
+            times.add(time);
+
+            Collections.shuffle(userIds);
+            calls.add(new Call(callId, new ArrayList<>(userIds.subList(0, memsAmountIt.next())),
+                    callId, durationsIt.next()));
+        }
+
+        for (RandomDateTime time : times) {
+            strBuilder.append(time.toDateTime());
+        }
+
+        for (Call call : calls) {
+            strBuilder.append(call.toCall());
+        }
+
+        Files.write(Paths.get(String.format("lib/data(%d-%d).sql", userAmount, callAmount)), strBuilder.toString().getBytes());
+>>>>>>> 58f23333dfabac6788dee87bd34b8c75c718de5c
     }
 
     public static class RandomDateTime {
@@ -126,7 +183,11 @@ public class CallMemberGenerator {
 
         public RandomDateTime() {
             LocalDateTime javaDateTime =
+<<<<<<< HEAD
                     LocalDateTime.ofEpochSecond(new Random().longs(1483228800, 1498867199).findFirst().getAsLong(),
+=======
+                    LocalDateTime.ofEpochSecond(new Random().longs(971208394, 1507665994).findFirst().getAsLong(),
+>>>>>>> 58f23333dfabac6788dee87bd34b8c75c718de5c
                             0, ZoneOffset.UTC);
             this.timestamp = Timestamp.valueOf(javaDateTime);
             this.day = javaDateTime.getDayOfMonth();
@@ -134,9 +195,15 @@ public class CallMemberGenerator {
             this.year = javaDateTime.getYear();
         }
 
+<<<<<<< HEAD
         public String toDateTime(int schema) {
             return new StringBuilder()
                     .append("INSERT INTO grupo2v" + schema + ".DateTime (Time, Day, Month, Year) VALUES (")
+=======
+        public String toDateTime() {
+            return new StringBuilder()
+                    .append("INSERT INTO DateTime (Time, Day, Month, Year) VALUES (")
+>>>>>>> 58f23333dfabac6788dee87bd34b8c75c718de5c
                     .append("TIMESTAMP '" + timestamp + "'")
                     .append(", ")
                     .append(day)
@@ -163,11 +230,19 @@ public class CallMemberGenerator {
             this.duration = duration;
         }
 
+<<<<<<< HEAD
         public String toCall(int schema) {
             StringBuilder strBuilder = new StringBuilder();
 
             for (int member : members) {
                 strBuilder.append("INSERT INTO grupo2v" + schema + ".Call (Id, TimeId, CallerId, MemberId, Duration) VALUES (");
+=======
+        public String toCall() {
+            StringBuilder strBuilder = new StringBuilder();
+
+            for (int member : members) {
+                strBuilder.append("INSERT INTO Call (Id, TimeId, CallerId, MemberId, Duration) VALUES (");
+>>>>>>> 58f23333dfabac6788dee87bd34b8c75c718de5c
                 strBuilder.append(id);
                 strBuilder.append(", ");
                 strBuilder.append(dateTimeId);
