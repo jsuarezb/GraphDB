@@ -62,9 +62,12 @@ public class CallMemberGenerator {
 	}
 	
 	private static void dropTables(Connection conn, int schema) throws SQLException {
-		conn.createStatement().execute("DROP IF EXISTS TABLE grupo2v" + schema + ".Call");
-		conn.createStatement().execute("DROP IF EXISTS TABLE grupo2v" + schema + ".EmisorReceptor");
-		conn.createStatement().execute("DROP IF EXISTS TABLE grupo2v" + schema + ".DateTime");
+		conn.createStatement().execute("IF EXISTS(SELECT * FROM sysobjects WHERE name='grupo2v" + schema + ".Call') "
+				+ "DROP TABLE grupo2v" + schema + ".Call");
+		conn.createStatement().execute("IF EXISTS(SELECT * FROM sysobjects WHERE name='grupo2v" + schema + ".EmisorReceptor') "
+				+ "DROP TABLE grupo2v" + schema + ".EmisorReceptor");
+		conn.createStatement().execute("IF EXISTS(SELECT * FROM sysobjects WHERE name='grupo2v" + schema + ".DateTime') "
+				+ "DROP TABLE grupo2v" + schema + ".DateTime");
 		conn.commit();
 	}
 	
