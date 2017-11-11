@@ -49,7 +49,7 @@ public class CallMemberGenerator {
 		List<Integer> amounts = Arrays.asList(100000, 300000, 715000);
 		int i = 1;
 		for (Integer amount : amounts) {
-			populate(conn, i--, amount, EMISORRECEPTOR_COUNT);
+			populate(conn, i++, amount, EMISORRECEPTOR_COUNT);
 //			createFile(i++, amount, EMISORRECEPTOR_COUNT);
 		}
 	}
