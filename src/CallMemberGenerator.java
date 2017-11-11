@@ -31,8 +31,8 @@ public class CallMemberGenerator {
 	private static final String EMISOR_RECEPTOR_SQL = "lib/emisorreceptor";
 
 	private static final String PSQL_SCHEMA = "jdbc:postgresql";
-	private static final String DB_HOST = "localhost";
-	private static final String DB_PORT = "8080";
+	private static final String DB_HOST = "10.16.6.21";
+	private static final String DB_PORT = "5432";
 	private static final String DB_URL = "tp";
 	private static final String USERNAME = "tcolloca";
 	private static final String PASSWORD = USERNAME;
@@ -62,9 +62,9 @@ public class CallMemberGenerator {
 	}
 	
 	private static void dropTables(Connection conn, int schema) throws SQLException {
-		conn.createStatement().execute("DROP TABLE grupo2v" + schema + ".Call");
-		conn.createStatement().execute("DROP TABLE grupo2v" + schema + ".EmisorReceptor");
-		conn.createStatement().execute("DROP TABLE grupo2v" + schema + ".DateTime");
+		conn.createStatement().execute("DROP IF EXISTS TABLE grupo2v" + schema + ".Call");
+		conn.createStatement().execute("DROP IF EXISTS TABLE grupo2v" + schema + ".EmisorReceptor");
+		conn.createStatement().execute("DROP IF EXISTS TABLE grupo2v" + schema + ".DateTime");
 		conn.commit();
 	}
 	
@@ -88,9 +88,9 @@ public class CallMemberGenerator {
 		
 		conn.createStatement().execute("CREATE TABLE grupo2v" + schema + ".Call (\r\n" + 
 				"    Id       INTEGER,\r\n" + 
-				" 	TimeId 	 INTEGER REFERENCES grupo2v1.DateTime,\r\n" + 
-				"  	CallerId INTEGER REFERENCES grupo2v1.EmisorReceptor,\r\n" + 
-				"  	MemberId INTEGER REFERENCES grupo2v1.EmisorReceptor,\r\n" + 
+				" 	TimeId 	 INTEGER REFERENCES grupo2v" + schema + ".DateTime,\r\n" + 
+				"  	CallerId INTEGER REFERENCES grupo2v" + schema + ".EmisorReceptor,\r\n" + 
+				"  	MemberId INTEGER REFERENCES grupo2v" + schema + ".EmisorReceptor,\r\n" + 
 				"  	Duration INTEGER,\r\n" + 
 				"\r\n" + 
 				"  	CONSTRAINT pk_call PRIMARY KEY (Id, TimeId, CallerId, MemberId)\r\n" + 
