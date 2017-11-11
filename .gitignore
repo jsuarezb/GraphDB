@@ -3,6 +3,7 @@
 out/
 /target/
 lib/data*
+.classpath
 
 .metadata
 bin/
