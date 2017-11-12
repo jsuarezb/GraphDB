@@ -15,6 +15,7 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.graphframes.GraphFrame;
 
 public class GraphMain {
 
@@ -51,6 +52,12 @@ public class GraphMain {
 		
 		Dataset<Row> verticesDataset = sparkSession.createDataFrame(sparkContext.parallelize(vertices), verticesSchema);
 		Dataset<Row> edgesDataset = sparkSession.createDataFrame(sparkContext.parallelize(edges), edgesSchema);
+		
+		GraphFrame graph = GraphFrame.apply(verticesDataset, edgesDataset);
+		
+		System.out.println(graph.vertices().filter("type = 'phone'").count());
+		System.out.println(graph.vertices().filter("type = 'timestamp'").count());
+		System.out.println(graph.vertices().filter("type = 'call'").count());
 	}
 
 	private static StructType buildVerticesSchema() {
@@ -127,7 +134,7 @@ public class GraphMain {
 			newNumberedLevel(allsMap.get("Times"), yearsMap, year, "" + year, "year", "toAllTimes");
 			newNumberedLevel(yearsMap.get("" + year), monthYearsMap, month, monthYear, "month", "inYear");
 			newNumberedLevel(monthYearsMap.get(monthYear), datesMap, day, date, "day", "inMonth");
-			newNumberedLevel(datesMap.get(date), timestampMap, seconds, timestamp, "seconds", "inDay");
+			newNumberedLevel(datesMap.get(date), timestampMap, seconds, timestamp, "timestamp", "inDay");
 			dateTimeIdsMap.put(id, timestampMap.get(timestamp));
 		});
 	}
