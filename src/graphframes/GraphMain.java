@@ -1,16 +1,12 @@
 package graphframes;
 
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
 
-import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
@@ -19,45 +15,57 @@ import org.graphframes.GraphFrame;
 
 public class GraphMain {
 
-	private static Long id = 1L;
-
-	private static HashMap<String, Long> usersMap = new HashMap<>();
-	private static HashMap<String, Long> phonesMap = new HashMap<>();
-	private static HashMap<String, Long> operatorsMap = new HashMap<>();
-	private static HashMap<String, Long> citiesMap = new HashMap<>();
-	private static HashMap<String, Long> countriesMap = new HashMap<>();
-	private static HashMap<String, Long> yearsMap = new HashMap<>();
-	private static HashMap<String, Long> monthYearsMap = new HashMap<>();
-	private static HashMap<String, Long> datesMap = new HashMap<>();
-	private static HashMap<String, Long> timestampMap = new HashMap<>();
-	private static HashMap<String, Long> allsMap = new HashMap<>();
-	
-	private static HashMap<Long, Long> phoneIdsMap = new HashMap<>();
-	private static HashMap<Long, Long> dateTimeIdsMap = new HashMap<>();
-	private static HashMap<Long, Long> callIdsMap = new HashMap<>();
-
-	private static ArrayList<Row> vertices = new ArrayList<Row>();
-	private static ArrayList<Row> edges = new ArrayList<Row>();
-	
-	private static int SCHEMA = 1;
+	private static List<String> vertexFields = new ArrayList<>();
+	private static List<String> locationsHierarchy = new ArrayList<>();
+	private static List<String> timesHierarchy = new ArrayList<>();
+	private static List<String> operatorsHierarchy = new ArrayList<>();
 
 	public static void main(String[] args) {
 		SparkSession sparkSession = SparkSession.builder().appName("TPE - Grupo 2").getOrCreate();
 		JavaSparkContext sparkContext = new JavaSparkContext(sparkSession.sparkContext());
 
 		StructType verticesSchema = buildVerticesSchema();
-		StructType edgesSchema =buildEdgesSchema();
+		StructType edgesSchema = buildEdgesSchema();
 
-		populate(sparkContext);
-		
-		Dataset<Row> verticesDataset = sparkSession.createDataFrame(sparkContext.parallelize(vertices), verticesSchema);
-		Dataset<Row> edgesDataset = sparkSession.createDataFrame(sparkContext.parallelize(edges), edgesSchema);
-		
+		DataReader dataReader = new DataReader(args[0]);
+		dataReader.populate(sparkContext);
+
+		Dataset<Row> verticesDataset = sparkSession.createDataFrame(sparkContext.parallelize(dataReader.getVertices()),
+				verticesSchema);
+		Dataset<Row> edgesDataset = sparkSession.createDataFrame(sparkContext.parallelize(dataReader.getEdges()),
+				edgesSchema);
+
 		GraphFrame graph = GraphFrame.apply(verticesDataset, edgesDataset);
+
+		graph.vertices().show(1000);
+		graph.edges().show(1000);
+
+		// System.out.println(graph.vertices().filter("type = 'phone'").count());
+		// System.out.println(graph.vertices().filter("type = 'timestamp'").count());
+		// System.out.println(graph.vertices().filter("type = 'call'").count());
+
+		GraphFrame newGraph = rollUp(sparkSession, graph, "day");
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
+
+		newGraph = rollUp(sparkSession, graph, "city");
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
+
+		newGraph = rollUp(sparkSession, graph, "operator");
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
+
+		newGraph = rollUp(sparkSession, graph, "phone");
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
 		
-		System.out.println(graph.vertices().filter("type = 'phone'").count());
-		System.out.println(graph.vertices().filter("type = 'timestamp'").count());
-		System.out.println(graph.vertices().filter("type = 'call'").count());
+		newGraph = rollUp(sparkSession, graph, "allTimes");
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
+		// rollUp(sparkSession, graph, "city", "name");
+		// rollUp(sparkSession, graph, "operator", "name");
+		// rollUp(sparkSession, graph, "phone", "phoneNumber");
 	}
 
 	private static StructType buildVerticesSchema() {
@@ -72,10 +80,16 @@ public class GraphMain {
 		verticesFields.add(DataTypes.createStructField("phoneNumber", DataTypes.StringType, true));
 
 		// DateTime | Day | Month | Year
-		verticesFields.add(DataTypes.createStructField("number", DataTypes.IntegerType, true));
+		verticesFields.add(DataTypes.createStructField("dateTime", DataTypes.StringType, true));
 
 		// Call
 		verticesFields.add(DataTypes.createStructField("duration", DataTypes.IntegerType, true));
+
+		vertexFields.addAll(Arrays.asList("name", "phoneNumber", "dateTime", "duration"));
+
+		timesHierarchy.addAll(Arrays.asList("timestamp", "day", "month", "year", "allTimes"));
+		locationsHierarchy.addAll(Arrays.asList("phone", "user", "city", "country", "allLocations"));
+		operatorsHierarchy.addAll(Arrays.asList("phone", "operator", "allOperators"));
 
 		return DataTypes.createStructType(verticesFields);
 	}
@@ -87,115 +101,94 @@ public class GraphMain {
 		edgesFields.add(DataTypes.createStructField("label", DataTypes.StringType, true));
 		return DataTypes.createStructType(edgesFields);
 	}
-
-	private static void populate(JavaSparkContext sparkContext) {
-		newAll("Locations");
-		newAll("Operators");
-		newAll("Times");
+	
+	private static GraphFrame max(SparkSession sparkSession, GraphFrame graph, String level) {
+		return agg(sparkSession, graph, level, "MAX");
+	}
+	
+	private static GraphFrame avg(SparkSession sparkSession, GraphFrame graph, String level) {
+		return agg(sparkSession, graph, level, "AVG");
+	}
+	
+	private static GraphFrame count(SparkSession sparkSession, GraphFrame graph, String level) {
+		return agg(sparkSession, graph, level, "COUNT");
+	}
+	
+	private static GraphFrame agg(SparkSession sparkSession, GraphFrame graph, String level, String agg) {
+		GraphFrame newGraph = rollUp(sparkSession, graph, level);
+		newGraph.vertices().createOrReplaceTempView("v_table");
 		
-		parseUsers(sparkContext);
-		parseDateTimes(sparkContext);
-		parseCalls(sparkContext);
-	}
-	
-	private static void parseUsers(JavaSparkContext sparkContext) {
-		JavaRDD<String> userLines = sparkContext.textFile("csv_tables/v" + SCHEMA + "/emisorreceptor.csv");
-		userLines.foreach(line -> {
-			String[] vars = line.split(",");
-			long id = Long.parseLong(vars[0]);
-			String phone = vars[1];
-			String operator = vars[2];
-			String username = vars[3];
-			String city = vars[4];
-			String country = vars[5];
-			newNamedLevel(allsMap.get("Locations"), countriesMap, country, "country", "toAllLocations");
-			newNamedLevel(countriesMap.get(country), citiesMap, city, "city", "inCountry");
-			newNamedLevel(citiesMap.get(city), usersMap, username, "username", "inCity");
-			newNamedLevel(allsMap.get("Operators"), operatorsMap, operator, "operator", "toAllOperators");
-			newPhone(operator, username, phone);
-			phoneIdsMap.put(id, timestampMap.get(phone));
-		});
-	}
-	
-	private static void parseDateTimes(JavaSparkContext sparkContext) {
-		JavaRDD<String> timeLines = sparkContext.textFile("csv_tables/v" + SCHEMA + "/datetime.csv");
-
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-		timeLines.foreach(line -> {
-			String[] vars = line.split(",");
-			long id = Long.parseLong(vars[0]);
-			int seconds = LocalTime.parse(vars[1].split(" ")[1], formatter).toSecondOfDay();
-			int day = Integer.parseInt(vars[2]);
-			int month = Integer.parseInt(vars[3]);
-			int year = Integer.parseInt(vars[4]);
-			String monthYear = month + "-" + year;
-			String date = day + "-" + monthYear;
-			String timestamp = seconds + "-" + date;
-			newNumberedLevel(allsMap.get("Times"), yearsMap, year, "" + year, "year", "toAllTimes");
-			newNumberedLevel(yearsMap.get("" + year), monthYearsMap, month, monthYear, "month", "inYear");
-			newNumberedLevel(monthYearsMap.get(monthYear), datesMap, day, date, "day", "inMonth");
-			newNumberedLevel(datesMap.get(date), timestampMap, seconds, timestamp, "timestamp", "inDay");
-			dateTimeIdsMap.put(id, timestampMap.get(timestamp));
-		});
-	}
-	
-	private static void parseCalls(JavaSparkContext sparkContext) {
-		JavaRDD<String> callLines = sparkContext.textFile("csv_tables/v" + SCHEMA + "/call.csv");
-		
-		callLines.foreach(line -> {
-			String[] vars = line.split(",");
-			long id = Long.parseLong(vars[0]);
-			long dateTimeId = Long.parseLong(vars[1]);
-			long callerId = Long.parseLong(vars[2]);
-			long memberId = Long.parseLong(vars[3]);
-			int duration = Integer.parseInt(vars[4]);
-			newCall(id, dateTimeId, callerId, memberId, duration);
-		});
-	}
-	
-	private static void newAll(String name) {
-		if (allsMap.containsKey(name)) {
-			return;
-		}
-		vertices.add(RowFactory.create(id, "all" + name, null, null, null, null));
-		allsMap.put(name, id++);
+		return null;
 	}
 
-	private static void newNamedLevel(long topId, HashMap<String, Long> levelMap, String name, String type, String edgeType) {
-		if (levelMap.containsKey(name)) {
-			return;
+	private static GraphFrame rollUp(SparkSession sparkSession, GraphFrame graph, String level) {
+		if (timesHierarchy.contains(level)) {
+			return rollUp(sparkSession, graph, level, "dateTime", timesHierarchy);
+		} else if (locationsHierarchy.contains(level)) {
+			return rollUp(sparkSession, graph, level, "name", locationsHierarchy);
+		} else if (operatorsHierarchy.contains(level)) {
+			return rollUp(sparkSession, graph, level, "name", operatorsHierarchy);
 		}
-		vertices.add(RowFactory.create(id, type, name, null, null, null));
-		edges.add(RowFactory.create(id, topId, edgeType));
-		levelMap.put(name, id++);
+		throw new IllegalArgumentException("Unknown level: " + level);
 	}
-	
-	private static <T> void newPhone(String operator, String user, String phone) {
-		if (phonesMap.containsKey(phone)) {
-			return;
+
+	private static GraphFrame rollUp(SparkSession sparkSession, GraphFrame graph, String level, String fieldName,
+			List<String> hierarchy) {
+		String bottom = hierarchy.get(0);
+		GraphFrame newGraph = graph;
+		for (int i = 1; i < hierarchy.size() && !hierarchy.get(i - 1).equals(level); i++) {
+			String nextLevel = hierarchy.get(i);
+
+			newGraph.triplets().createOrReplaceTempView("t_table");
+
+			Dataset<Row> idPairs = sparkSession.sql("SELECT src.id as srcId, dst.id as dstId, edge.label as label FROM t_table WHERE src.type = '"
+					+ bottom + "'" + " AND dst.type = '" + nextLevel + "'");
+			idPairs.createOrReplaceTempView("id_pairs");
+			
+			Dataset<Row> newEdges = sparkSession
+					.sql("SELECT t_table.src.id as src, COALESCE(v.dstId, t_table.dst.id) as dst, COALESCE(v.label, edge.label) as label "
+							+ "FROM  t_table LEFT OUTER JOIN id_pairs v ON t_table.dst.id = v.srcId").distinct();
+
+			newGraph.vertices().createOrReplaceTempView("v_table");
+			Dataset<Row> newVertices = sparkSession.sql("SELECT * FROM v_table " + "WHERE type <> '" + bottom + "'");
+
+			newGraph = GraphFrame.apply(newVertices, newEdges);
+			bottom = nextLevel;
 		}
-		vertices.add(RowFactory.create(id, "phone", null, phone, null, null));
-		edges.add(RowFactory.create(id, operatorsMap.get(operator), "fromOperator"));
-		edges.add(RowFactory.create(id, operatorsMap.get(operator), "belongsTo"));
-		phonesMap.put(phone, id++);
-	}
-	
-	private static void newNumberedLevel(long topId, HashMap<String, Long> levelMap, int number, String key, String type, String edgeType) {
-		if (levelMap.containsKey(key)) {
-			return;
-		}
-		vertices.add(RowFactory.create(id, type, null, null, number, null));
-		edges.add(RowFactory.create(id, topId, edgeType));
-		levelMap.put(key, id++);
-	}
-	
-	private static void newCall(long callId, long dateTimeId, long callerId, long memberId, int duration) {
-		if (!callIdsMap.containsKey(callId)) {
-			vertices.add(RowFactory.create(id, "call", null, null, null, duration));
-			callIdsMap.put(callId, id++);
-		}
-		edges.add(RowFactory.create(callIdsMap.get(callId), dateTimeId, "atTimestamp"));
-		edges.add(RowFactory.create(callIdsMap.get(callId), callerId, "calledBy"));
-		edges.add(RowFactory.create(callIdsMap.get(callId), memberId, "integratedBy"));
+		return newGraph;
+
+		// String query = "SELECT MIN(id) as id, '" + level + "' as type, ";
+		// String cols = vertexFields.stream().map(field -> {
+		// if (field.equals(fieldName)) {
+		// return fieldName;
+		// }
+		// return "NULL as " + field;
+		// }).collect(Collectors.joining(", "));
+		// query += cols;
+		//
+		// Dataset<Row> minVertices = sparkSession
+		// .sql(query + " FROM v_table " + "WHERE type = '" + level + "' GROUP BY " +
+		// fieldName);
+		// minVertices.createOrReplaceTempView("v_min_table");
+		// System.out.println(minVertices.count());
+		//
+		// Dataset<Row> otherVertices = sparkSession.sql("SELECT * FROM v_table " +
+		// "WHERE type <> '" + level + "'");
+		//
+		// Dataset<Row> newVertices = otherVertices.union(minVertices);
+		//
+		// graph.edges().createOrReplaceTempView("e_table");
+		// graph.triplets().createOrReplaceTempView("t_table");
+		//
+		// Dataset<Row> newEdges = sparkSession.sql(
+		// "SELECT COALESCE(v1.id, t_table.src.id) as src, COALESCE(v2.id,
+		// t_table.dst.id) as dst, edge.label as label "
+		// + "FROM t_table FULL OUTER JOIN v_min_table v1 ON t_table.src." + fieldName +
+		// " = v1."
+		// + fieldName + " FULL OUTER JOIN v_min_table v2 ON t_table.dst." + fieldName +
+		// "= v2."
+		// + fieldName);
+		//
+		// return GraphFrame.apply(newVertices, newEdges);
 	}
 }
