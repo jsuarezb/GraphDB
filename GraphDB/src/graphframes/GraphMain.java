@@ -19,8 +19,31 @@ public class GraphMain {
 		SparkSession sparkSession = SparkSession.builder().appName("TPE - Grupo 2").getOrCreate();
 		JavaSparkContext sparkContext = new JavaSparkContext(sparkSession.sparkContext());
 
-		GraphFrame schemaGraph = new SchemaGraph().buildGraph(sparkSession, sparkContext);
-		GraphFrame dataGraph = new DataGraph(args[0]).buildGraph(sparkSession, sparkContext);
+		GraphFrame schemaGraph;
+		GraphFrame dataGraph;
+		
+		String[] aux = args[0].split("/");
+		String dataName = aux[aux.length - 1];
+		
+		try {
+			Dataset<Row> schemaVertices = sparkSession.read().parquet("schema-vertices"+ dataName);
+			Dataset<Row> schemaEdges = sparkSession.read().parquet("schema-edges"+ dataName);
+			
+			Dataset<Row> dataVertices = sparkSession.read().parquet("data-vertices"+ dataName);
+			Dataset<Row> dataEdges = sparkSession.read().parquet("data-edges"+ dataName);
+			
+			schemaGraph = GraphFrame.apply(schemaVertices, schemaEdges);
+			dataGraph = GraphFrame.apply(dataVertices, dataEdges);
+		} catch (Throwable th) {
+			schemaGraph = new SchemaGraph().buildGraph(sparkSession, sparkContext);
+			dataGraph = new DataGraph(args[0]).buildGraph(sparkSession, sparkContext);
+			
+			schemaGraph.vertices().write().parquet("schema-vertices" + dataName);
+			schemaGraph.edges().write().parquet("schema-edges" + dataName);
+			
+			dataGraph.vertices().write().parquet("data-vertices" + dataName);
+			dataGraph.edges().write().parquet("data-edges" + dataName);
+		}
 		
 		schemaGraph.vertices().show(1000);
 		schemaGraph.edges().show(1000);
@@ -57,6 +80,21 @@ public class GraphMain {
 		newGraph.vertices().show(1000);
 		newGraph.edges().show(1000);
 
+		newGraph.triplets().filter("edge.label = 'calledBy' OR edge.label = 'integratedBy'")
+			.createOrReplaceTempView("call_triplets");
+		
+		sparkSession.sql("SELECT c1.src.id as c1Id, c2.src.id as c2Id"
+				+ "FROM call_triplets c1, call_triplets c2 "
+				+ "WHERE (SELECT COUNT(*) FROM call_triplets c WHERE c.src.id = c1.src.id) = ( " 
+				+ "		SELECT COUNT(*) "
+				+ "		FROM call_triplets c3, call_triplets c4 "
+				+ "		WHERE c3.src.id = c1.edge.src.id AND c4.src.id = c2.src.id "
+				+ "		WHERE c3.src.dateTime = c4.src.dateTime "
+				+ "		AND c3.edge.label = c4.edge.label "
+				+ "		AND c3.dst.id = c4.edge.dst.id "
+				+ "		GROUP BY c3.src.id, c4.src.id "
+				+ ")");
+		
 //		GraphFrame newGraph = rollUp(sparkSession, graph, "day");
 //		newGraph.vertices().show(1000);
 //		newGraph.edges().show(1000);
