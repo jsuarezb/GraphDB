@@ -23,7 +23,6 @@ public class DataGraph implements Serializable {
 	private long id = 1L;
 
 	private HashMap<String, Long> usersMap = new HashMap<>();
-	private HashMap<String, Long> phonesMap = new HashMap<>();
 	private HashMap<String, Long> operatorsMap = new HashMap<>();
 	private HashMap<String, Long> citiesMap = new HashMap<>();
 	private HashMap<String, Long> countriesMap = new HashMap<>();
@@ -32,9 +31,12 @@ public class DataGraph implements Serializable {
 	private HashMap<String, Long> datesMap = new HashMap<>();
 	private HashMap<String, Long> timestampMap = new HashMap<>();
 	private HashMap<String, Long> allsMap = new HashMap<>();
+
+	private HashMap<String, Long> phonesMap = new HashMap<>();
+	private HashMap<String, Long> timesMap = new HashMap<>();
 	
 	private HashMap<Long, Long> phoneIdsMap = new HashMap<>();
-	private HashMap<Long, String> dateTimesMap = new HashMap<>();
+	private HashMap<Long, Long> dateTimesIdsMap = new HashMap<>();
 	private HashMap<Long, Long> callIdsMap = new HashMap<>();
 
 	private ArrayList<Row> vertices = new ArrayList<Row>();
@@ -103,7 +105,8 @@ public class DataGraph implements Serializable {
 			newSchemaInstanceLevel(yearsMap.get(year), monthYearsMap, "Times", "month", monthYear, "inYear");
 			newSchemaInstanceLevel(monthYearsMap.get(monthYear), datesMap, "Times", "day", date, "inMonth");
 			newSchemaInstanceLevel(datesMap.get(date), timestampMap, "Times", "timestamp", timestamp, "inDay");
-			dateTimesMap.put(id, timestamp);
+			newTimestamp(timestamp);
+			dateTimesIdsMap.put(id, timesMap.get(timestamp));
 		});
 	}
 	
@@ -117,7 +120,7 @@ public class DataGraph implements Serializable {
 			long callerId = Long.parseLong(vars[2]);
 			long memberId = Long.parseLong(vars[3]);
 			int duration = Integer.parseInt(vars[4]);
-			newCall(id, phoneIdsMap.get(callerId), phoneIdsMap.get(memberId), dateTimesMap.get(dateTimeId), duration);
+			newCall(id, phoneIdsMap.get(callerId), phoneIdsMap.get(memberId), dateTimesIdsMap.get(dateTimeId), duration);
 		});
 	}
 	
@@ -125,7 +128,7 @@ public class DataGraph implements Serializable {
 		if (allsMap.containsKey(dimension)) {
 			return;
 		}
-		vertices.add(RowFactory.create(id, "schemaInstance", new String[]{dimension}, "all" + dimension, "all" + dimension, null, null));
+		vertices.add(RowFactory.create(id, "schemaInstance", new String[]{dimension}, "all" + dimension, "all" + dimension, null));
 		allsMap.put(dimension, id++);
 	}
 
@@ -133,13 +136,13 @@ public class DataGraph implements Serializable {
 		if (levelMap.containsKey(name)) {
 			return;
 		}
-		vertices.add(RowFactory.create(id, "schemaInstance", new String[]{dimension}, type, name, null, null));
+		vertices.add(RowFactory.create(id, "schemaInstance", new String[]{dimension}, type, name, null));
 		edges.add(RowFactory.create(id, topId, edgeType));
 		levelMap.put(name, id++);
 	}
 	
 	private void newSchemaInstancePhone(long userId, long operatorId, String phone) {
-		vertices.add(RowFactory.create(id, "schemaInstance", new String[]{"Locations", "Operators"}, "phone", phone, null, null));
+		vertices.add(RowFactory.create(id, "schemaInstance", new String[]{"Locations", "Operators"}, "phone", phone, null));
 		edges.add(RowFactory.create(id, userId, "ofUser"));
 		edges.add(RowFactory.create(id++, operatorId, "ofOperator"));
 	}
@@ -148,15 +151,24 @@ public class DataGraph implements Serializable {
 		if (phonesMap.containsKey(phone)) {
 			return;
 		}
-		vertices.add(RowFactory.create(id, "phone", null, null, phone, null, null));
+		vertices.add(RowFactory.create(id, "phone", null, null, phone, null));
 		phonesMap.put(phone, id++);
 	}
 	
-	private void newCall(long callId, long callerId, long memberId, String dateTime, int duration) {
+	private <T> void newTimestamp(String timestamp) {
+		if (timesMap.containsKey(timestamp)) {
+			return;
+		}
+		vertices.add(RowFactory.create(id, "timestamp", null, null, timestamp, null));
+		timesMap.put(timestamp, id++);
+	}
+	
+	private void newCall(long callId, long callerId, long memberId, long dateTimeId, int duration) {
 		if (!callIdsMap.containsKey(callId)) {
-			vertices.add(RowFactory.create(id, "call", null, null, null, dateTime, duration));
+			vertices.add(RowFactory.create(id, "call", null, null, null, duration));
 			callIdsMap.put(callId, id++);
 			edges.add(RowFactory.create(callIdsMap.get(callId), callerId, "calledBy"));
+			edges.add(RowFactory.create(callIdsMap.get(callId), dateTimeId, "atTime"));
 		}
 		edges.add(RowFactory.create(callIdsMap.get(callId), memberId, "integratedBy"));
 	}
@@ -172,7 +184,6 @@ public class DataGraph implements Serializable {
 		verticesFields.add(DataTypes.createStructField("value", DataTypes.StringType, true));
 
 		// Call
-		verticesFields.add(DataTypes.createStructField("dateTime", DataTypes.StringType, true));
 		verticesFields.add(DataTypes.createStructField("duration", DataTypes.IntegerType, true));
 
 		return DataTypes.createStructType(verticesFields);

@@ -6,6 +6,7 @@ import java.util.List;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.graphframes.GraphFrame;
 
@@ -26,11 +27,11 @@ public class GraphMain {
 		String dataName = aux[aux.length - 1];
 		
 		try {
-			Dataset<Row> schemaVertices = sparkSession.read().parquet("schema-vertices"+ dataName);
-			Dataset<Row> schemaEdges = sparkSession.read().parquet("schema-edges"+ dataName);
+			Dataset<Row> schemaVertices = sparkSession.read().parquet("schema-verticesv2"+ dataName);
+			Dataset<Row> schemaEdges = sparkSession.read().parquet("schema-edgesv2"+ dataName);
 			
-			Dataset<Row> dataVertices = sparkSession.read().parquet("data-vertices"+ dataName);
-			Dataset<Row> dataEdges = sparkSession.read().parquet("data-edges"+ dataName);
+			Dataset<Row> dataVertices = sparkSession.read().parquet("data-verticesv2"+ dataName);
+			Dataset<Row> dataEdges = sparkSession.read().parquet("data-edgesv2"+ dataName);
 			
 			schemaGraph = GraphFrame.apply(schemaVertices, schemaEdges);
 			dataGraph = GraphFrame.apply(dataVertices, dataEdges);
@@ -38,11 +39,11 @@ public class GraphMain {
 			schemaGraph = new SchemaGraph().buildGraph(sparkSession, sparkContext);
 			dataGraph = new DataGraph(args[0]).buildGraph(sparkSession, sparkContext);
 			
-			schemaGraph.vertices().write().parquet("schema-vertices" + dataName);
-			schemaGraph.edges().write().parquet("schema-edges" + dataName);
+			schemaGraph.vertices().write().mode(SaveMode.Overwrite).parquet("schema-verticesv2" + dataName);
+			schemaGraph.edges().write().mode(SaveMode.Overwrite).parquet("schema-edgesv2" + dataName);
 			
-			dataGraph.vertices().write().parquet("data-vertices" + dataName);
-			dataGraph.edges().write().parquet("data-edges" + dataName);
+			dataGraph.vertices().write().mode(SaveMode.Overwrite).parquet("data-verticesv2" + dataName);
+			dataGraph.edges().write().mode(SaveMode.Overwrite).parquet("data-edgesv2" + dataName);
 		}
 		
 		schemaGraph.vertices().show(1000);
@@ -50,74 +51,80 @@ public class GraphMain {
 		
 		dataGraph.vertices().show(1000);
 		dataGraph.edges().show(1000);
+
+		GraphFrame newGraph = climb(sparkSession, dataGraph, "phone", "city");
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
 		
-		dataGraph.find("(phone)-[e1]->(user); (user)-[e2]->(city)")
-			.filter("city.level = 'city'")
-			.createOrReplaceTempView("rollup_paths");
+		// MINIMIZACION
 		
-		dataGraph.vertices().filter("type = 'phone'").createOrReplaceTempView("phones");
-		Dataset<Row> otherVertices = dataGraph.vertices().filter("type <> 'phone'");
+		newGraph.triplets().filter("edge.label = 'calledBy' OR edge.label = 'integratedBy'")
+			.createOrReplaceTempView("call_triplets");
 		
-		sparkSession.sql("SELECT p.id as id, r.city.value as city "
-				+ "FROM rollup_paths r, phones p "
-				+ "WHERE p.value = r.phone.value"
-				+ "").createOrReplaceTempView("climbed_phones");
+		sparkSession.conf().set("spark.sql.crossJoin.enabled", "true");
 		
-		Dataset<Row> newPhones = sparkSession.sql("SELECT MIN(id) as id, 'city' AS type, NULL, NULL, city, NULL, NULL "
-				+ "FROM climbed_phones "
-				+ "GROUP BY city");
-		newPhones.createOrReplaceTempView("climbed_phones_ids");
+		sparkSession.sql("SELECT * FROM call_triplets").show(1000);
+		
+		dataGraph.vertices().filter("type = 'call'").select("id").createOrReplaceTempView("calls");
+		
+		Dataset<Row> rows = sparkSession.sql("SELECT c1.id AS c1Id, c2.id AS c2Id \n"
+				+ "FROM calls c1, calls c2 \n"
+				+ "WHERE (SELECT COUNT(*) FROM call_triplets c WHERE c.src.id = c1.id) = ( \n" 
+				+ "		SELECT SUM(val) FROM (SELECT sqrt(COUNT(*)) as val \n"
+				+ "		FROM call_triplets c3 JOIN call_triplets c4 \n"
+				+ "			ON c3.edge.label = c4.edge.label \n"
+				+ "			AND c3.dst.id = c4.dst.id \n"
+				+ "		WHERE c3.src.id = c1.id \n"
+				+ "		AND c4.src.id = c2.id \n"
+				+ "		GROUP BY c3.dst.id, c4.dst.id, c3.edge.label \n"
+				+ "))");
+		rows.show(1000);
+	}
+	
+	private static GraphFrame climb(SparkSession sparkSession, GraphFrame dataGraph, 
+			String srcLevel, String dstLevel) {
+		
+		StringBuilder pathStr = new StringBuilder("[e0]");
+		Dataset<Row> paths;
+		int i = 1;
+		while (true) {
+			paths = dataGraph.find("(srcLevel)-" + pathStr.toString() + "->(dstLevel)")
+					.filter("srcLevel.level = '" + srcLevel + "'")
+					.filter("dstLevel.level = '" + dstLevel + "'");
+			if (paths.count() > 0) {
+				break;
+			}
+			pathStr.append(String.format("-> (v%d); (v%d)-[e%d]", i, i, i));
+			i++;
+		}
+		System.out.println("(srcLevel)-" + pathStr.toString() + "->(dstLevel)");
+		paths.createOrReplaceTempView("climb_paths");
+	
+		dataGraph.vertices().filter("type = '" + srcLevel + "'").createOrReplaceTempView("bottoms");
+		Dataset<Row> otherVertices = dataGraph.vertices().filter("type <> '" + srcLevel + "'");
+		
+		sparkSession.sql("SELECT b.id AS id, p.dstLevel.value AS dstLevelValue \n"
+				+ "FROM climb_paths p, bottoms b \n"
+				+ "WHERE b.value = p.srcLevel.value \n"
+				+ "").createOrReplaceTempView("climbed_bottoms");
+		
+		Dataset<Row> newPhones = sparkSession.sql("SELECT MIN(id) AS id, '" + dstLevel + "' AS type, NULL AS label, \n"
+				+ "NULL AS level, dstLevelValue AS value, NULL AS duration \n"
+				+ "FROM climbed_bottoms \n"
+				+ "GROUP BY dstLevelValue");
+		newPhones.createOrReplaceTempView("climbed_bottoms_ids");
 		
 		dataGraph.edges().createOrReplaceTempView("edges");
 		Dataset<Row> otherEdges = dataGraph.edges().filter("label <> 'calledBy' AND label <> 'integratedBy'");
 		
-		Dataset<Row> newEdges = sparkSession.sql("SELECT edges.src AS src, climbed_phones_ids.id AS dst, edges.label "
-		 		+ "FROM climbed_phones, edges, climbed_phones_ids "
-		 		+ "WHERE climbed_phones_ids.city = climbed_phones.city "
-		 		+ "AND climbed_phones.id = edges.dst");
+		Dataset<Row> newEdges = sparkSession.sql("SELECT edges.src AS src, climbed_bottoms_ids.id AS dst, edges.label \n"
+		 		+ "FROM climbed_bottoms, edges, climbed_bottoms_ids \n"
+		 		+ "WHERE climbed_bottoms_ids.value = climbed_bottoms.dstLevelValue \n"
+		 		+ "AND climbed_bottoms.id = edges.dst");
 		
-		GraphFrame newGraph = GraphFrame.apply(newPhones.union(otherVertices), newEdges.union(otherEdges));
-		newGraph.vertices().show(1000);
-		newGraph.edges().show(1000);
-
-		newGraph.triplets().filter("edge.label = 'calledBy' OR edge.label = 'integratedBy'")
-			.createOrReplaceTempView("call_triplets");
-		
-		sparkSession.sql("SELECT c1.src.id as c1Id, c2.src.id as c2Id"
-				+ "FROM call_triplets c1, call_triplets c2 "
-				+ "WHERE (SELECT COUNT(*) FROM call_triplets c WHERE c.src.id = c1.src.id) = ( " 
-				+ "		SELECT COUNT(*) "
-				+ "		FROM call_triplets c3, call_triplets c4 "
-				+ "		WHERE c3.src.id = c1.edge.src.id AND c4.src.id = c2.src.id "
-				+ "		WHERE c3.src.dateTime = c4.src.dateTime "
-				+ "		AND c3.edge.label = c4.edge.label "
-				+ "		AND c3.dst.id = c4.edge.dst.id "
-				+ "		GROUP BY c3.src.id, c4.src.id "
-				+ ")");
-		
-//		GraphFrame newGraph = rollUp(sparkSession, graph, "day");
-//		newGraph.vertices().show(1000);
-//		newGraph.edges().show(1000);
-//
-//		newGraph = rollUp(sparkSession, graph, "city");
-//		newGraph.vertices().show(1000);
-//		newGraph.edges().show(1000);
-//
-//		newGraph = rollUp(sparkSession, graph, "operator");
-//		newGraph.vertices().show(1000);
-//		newGraph.edges().show(1000);
-//
-//		newGraph = rollUp(sparkSession, graph, "phone");
-//		newGraph.vertices().show(1000);
-//		newGraph.edges().show(1000);
-//		
-//		newGraph = rollUp(sparkSession, graph, "allTimes");
-//		newGraph.vertices().show(1000);
-//		newGraph.edges().show(1000);
-		// rollUp(sparkSession, graph, "city", "name");
-		// rollUp(sparkSession, graph, "operator", "name");
-		// rollUp(sparkSession, graph, "phone", "phoneNumber");
+		return GraphFrame.apply(newPhones.union(otherVertices), newEdges.union(otherEdges));
 	}
+	
 
 //	private static GraphFrame max(SparkSession sparkSession, GraphFrame graph, String level) {
 //		return agg(sparkSession, graph, level, "MAX");
