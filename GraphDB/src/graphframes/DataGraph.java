@@ -165,7 +165,7 @@ public class DataGraph implements Serializable {
 	
 	private void newCall(long callId, long callerId, long memberId, long dateTimeId, int duration) {
 		if (!callIdsMap.containsKey(callId)) {
-			vertices.add(RowFactory.create(id, "call", null, null, null, duration));
+			vertices.add(RowFactory.create(id, "call", null, null, null, new int[] {duration}));
 			callIdsMap.put(callId, id++);
 			edges.add(RowFactory.create(callIdsMap.get(callId), callerId, "calledBy"));
 			edges.add(RowFactory.create(callIdsMap.get(callId), dateTimeId, "atTime"));
@@ -184,7 +184,7 @@ public class DataGraph implements Serializable {
 		verticesFields.add(DataTypes.createStructField("value", DataTypes.StringType, true));
 
 		// Call
-		verticesFields.add(DataTypes.createStructField("duration", DataTypes.IntegerType, true));
+		verticesFields.add(DataTypes.createStructField("duration", DataTypes.createArrayType(DataTypes.IntegerType), true));
 
 		return DataTypes.createStructType(verticesFields);
 	}

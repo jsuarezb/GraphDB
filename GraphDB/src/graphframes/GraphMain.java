@@ -1,7 +1,6 @@
 package graphframes;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.text.NumberFormat;
 
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
@@ -12,14 +11,12 @@ import org.graphframes.GraphFrame;
 
 public class GraphMain {
 
-	private static List<String> locationsHierarchy = new ArrayList<>();
-	private static List<String> timesHierarchy = new ArrayList<>();
-	private static List<String> operatorsHierarchy = new ArrayList<>();
-
 	public static void main(String[] args) {
 		SparkSession sparkSession = SparkSession.builder().appName("TPE - Grupo 2").getOrCreate();
 		JavaSparkContext sparkContext = new JavaSparkContext(sparkSession.sparkContext());
 
+		sparkContext.setCheckpointDir("cache-g2");
+		
 		GraphFrame schemaGraph;
 		GraphFrame dataGraph;
 		
@@ -27,58 +24,60 @@ public class GraphMain {
 		String dataName = aux[aux.length - 1];
 		
 		try {
-			Dataset<Row> schemaVertices = sparkSession.read().parquet("schema-verticesv2"+ dataName);
-			Dataset<Row> schemaEdges = sparkSession.read().parquet("schema-edgesv2"+ dataName);
+			Dataset<Row> schemaVertices = sparkSession.read().parquet("schema-verticesv3"+ dataName);
+			Dataset<Row> schemaEdges = sparkSession.read().parquet("schema-edgesv3"+ dataName);
 			
-			Dataset<Row> dataVertices = sparkSession.read().parquet("data-verticesv2"+ dataName);
-			Dataset<Row> dataEdges = sparkSession.read().parquet("data-edgesv2"+ dataName);
+			Dataset<Row> dataVertices = sparkSession.read().parquet("data-verticesv3"+ dataName);
+			Dataset<Row> dataEdges = sparkSession.read().parquet("data-edgesv3"+ dataName);
 			
 			schemaGraph = GraphFrame.apply(schemaVertices, schemaEdges);
-			dataGraph = GraphFrame.apply(dataVertices, dataEdges);
+			dataGraph = GraphFrame.apply(dataVertices, dataEdges).cache();
 		} catch (Throwable th) {
 			schemaGraph = new SchemaGraph().buildGraph(sparkSession, sparkContext);
-			dataGraph = new DataGraph(args[0]).buildGraph(sparkSession, sparkContext);
+			dataGraph = new DataGraph(args[0]).buildGraph(sparkSession, sparkContext).cache();
 			
-			schemaGraph.vertices().write().mode(SaveMode.Overwrite).parquet("schema-verticesv2" + dataName);
-			schemaGraph.edges().write().mode(SaveMode.Overwrite).parquet("schema-edgesv2" + dataName);
+			schemaGraph.vertices().write().mode(SaveMode.Overwrite).parquet("schema-verticesv3" + dataName);
+			schemaGraph.edges().write().mode(SaveMode.Overwrite).parquet("schema-edgesv3" + dataName);
 			
-			dataGraph.vertices().write().mode(SaveMode.Overwrite).parquet("data-verticesv2" + dataName);
-			dataGraph.edges().write().mode(SaveMode.Overwrite).parquet("data-edgesv2" + dataName);
+			dataGraph.vertices().write().mode(SaveMode.Overwrite).parquet("data-verticesv3" + dataName);
+			dataGraph.edges().write().mode(SaveMode.Overwrite).parquet("data-edgesv3" + dataName);
 		}
-		
-		schemaGraph.vertices().show(1000);
-		schemaGraph.edges().show(1000);
 		
 		dataGraph.vertices().show(1000);
 		dataGraph.edges().show(1000);
 
-		GraphFrame newGraph = climb(sparkSession, dataGraph, "phone", "city");
+		GraphFrame newGraph = climb(sparkSession, dataGraph, "phone", "allLocations");
+		GraphFrame auxGraph = newGraph;
+		dataGraph.unpersist();
+		
+		newGraph = climb(sparkSession, newGraph, "timestamp", "month");
+		
+		auxGraph.unpersist();
+		auxGraph = newGraph;
+		
+		// TODO: CHANGE TO NEWGRAPH
+		newGraph = minimize(sparkSession, newGraph);
+		
+		auxGraph.unpersist();
+		auxGraph = newGraph;
+		
 		newGraph.vertices().show(1000);
 		newGraph.edges().show(1000);
 		
-		// MINIMIZACION
+		newGraph = climb(sparkSession, newGraph, "month", "allTimes");
 		
-		newGraph.triplets().filter("edge.label = 'calledBy' OR edge.label = 'integratedBy'")
-			.createOrReplaceTempView("call_triplets");
+		auxGraph.unpersist();
+		auxGraph = newGraph;
 		
-		sparkSession.conf().set("spark.sql.crossJoin.enabled", "true");
+		newGraph = minimize(sparkSession, newGraph);
 		
-		sparkSession.sql("SELECT * FROM call_triplets").show(1000);
+		newGraph.vertices().show(1000);
+		newGraph.edges().show(1000);
 		
-		dataGraph.vertices().filter("type = 'call'").select("id").createOrReplaceTempView("calls");
+		auxGraph.unpersist();
+		auxGraph = newGraph;
 		
-		Dataset<Row> rows = sparkSession.sql("SELECT c1.id AS c1Id, c2.id AS c2Id \n"
-				+ "FROM calls c1, calls c2 \n"
-				+ "WHERE (SELECT COUNT(*) FROM call_triplets c WHERE c.src.id = c1.id) = ( \n" 
-				+ "		SELECT SUM(val) FROM (SELECT sqrt(COUNT(*)) as val \n"
-				+ "		FROM call_triplets c3 JOIN call_triplets c4 \n"
-				+ "			ON c3.edge.label = c4.edge.label \n"
-				+ "			AND c3.dst.id = c4.dst.id \n"
-				+ "		WHERE c3.src.id = c1.id \n"
-				+ "		AND c4.src.id = c2.id \n"
-				+ "		GROUP BY c3.dst.id, c4.dst.id, c3.edge.label \n"
-				+ "))");
-		rows.show(1000);
+		auxGraph.unpersist();
 	}
 	
 	private static GraphFrame climb(SparkSession sparkSession, GraphFrame dataGraph, 
@@ -87,7 +86,13 @@ public class GraphMain {
 		StringBuilder pathStr = new StringBuilder("[e0]");
 		Dataset<Row> paths;
 		int i = 1;
+		System.out.println("srcLevel.level = '" + srcLevel + "'");
+		System.out.println("dstLevel.level = '" + dstLevel + "'");
+		dataGraph.vertices().filter("level = '" + srcLevel + "'").show(100);
+		dataGraph.vertices().filter("level = '" + dstLevel + "'").show(100);
 		while (true) {
+			printMemory();
+			System.out.println("(srcLevel)-" + pathStr.toString() + "->(dstLevel)");
 			paths = dataGraph.find("(srcLevel)-" + pathStr.toString() + "->(dstLevel)")
 					.filter("srcLevel.level = '" + srcLevel + "'")
 					.filter("dstLevel.level = '" + dstLevel + "'");
@@ -97,151 +102,164 @@ public class GraphMain {
 			pathStr.append(String.format("-> (v%d); (v%d)-[e%d]", i, i, i));
 			i++;
 		}
-		System.out.println("(srcLevel)-" + pathStr.toString() + "->(dstLevel)");
-		paths.createOrReplaceTempView("climb_paths");
+		paths.cache().createOrReplaceTempView("climb_paths");
 	
-		dataGraph.vertices().filter("type = '" + srcLevel + "'").createOrReplaceTempView("bottoms");
-		Dataset<Row> otherVertices = dataGraph.vertices().filter("type <> '" + srcLevel + "'");
+		Dataset<Row> bottoms = dataGraph.vertices().filter("type = '" + srcLevel + "'");
+		bottoms.createOrReplaceTempView("bottoms");
 		
-		sparkSession.sql("SELECT b.id AS id, p.dstLevel.value AS dstLevelValue \n"
+		Dataset<Row> climbed_bottoms = sparkSession.sql("SELECT b.id AS id, p.dstLevel.value AS dstLevelValue \n"
 				+ "FROM climb_paths p, bottoms b \n"
 				+ "WHERE b.value = p.srcLevel.value \n"
-				+ "").createOrReplaceTempView("climbed_bottoms");
+				+ "").cache();
+		climbed_bottoms.createOrReplaceTempView("climbed_bottoms");
+
+		paths.unpersist();
 		
 		Dataset<Row> newPhones = sparkSession.sql("SELECT MIN(id) AS id, '" + dstLevel + "' AS type, NULL AS label, \n"
 				+ "NULL AS level, dstLevelValue AS value, NULL AS duration \n"
 				+ "FROM climbed_bottoms \n"
-				+ "GROUP BY dstLevelValue");
+				+ "GROUP BY dstLevelValue").cache();
 		newPhones.createOrReplaceTempView("climbed_bottoms_ids");
 		
-		dataGraph.edges().createOrReplaceTempView("edges");
-		Dataset<Row> otherEdges = dataGraph.edges().filter("label <> 'calledBy' AND label <> 'integratedBy'");
+		Dataset<Row> triplets = dataGraph.triplets().filter("src.type = 'call'").select("edge");
+		triplets.createOrReplaceTempView("triplets");
 		
-		Dataset<Row> newEdges = sparkSession.sql("SELECT edges.src AS src, climbed_bottoms_ids.id AS dst, edges.label \n"
-		 		+ "FROM climbed_bottoms, edges, climbed_bottoms_ids \n"
+		Dataset<Row> newEdges = sparkSession.sql("SELECT t.edge.src AS src, climbed_bottoms_ids.id AS dst, t.edge.label as label \n"
+		 		+ "FROM climbed_bottoms, triplets as t, climbed_bottoms_ids \n"
 		 		+ "WHERE climbed_bottoms_ids.value = climbed_bottoms.dstLevelValue \n"
-		 		+ "AND climbed_bottoms.id = edges.dst");
+		 		+ "AND climbed_bottoms.id = t.edge.dst").cache();
+
+		climbed_bottoms.unpersist();
 		
-		return GraphFrame.apply(newPhones.union(otherVertices), newEdges.union(otherEdges));
+		newEdges.select("label").createOrReplaceTempView("new_edge_labels");
+		
+		dataGraph.edges().createOrReplaceTempView("edges");
+		Dataset<Row> otherEdges = sparkSession.sql("SELECT * FROM edges e \n"
+				+ "WHERE e.label NOT IN (SELECT * FROM new_edge_labels)");
+		
+		Dataset<Row> otherVertices = dataGraph.vertices().filter("type <> '" + srcLevel + "'");
+		
+		GraphFrame newGraph = GraphFrame.apply(newPhones.union(otherVertices), newEdges.union(otherEdges));
+
+		newPhones.unpersist();
+		newEdges.unpersist();
+		
+		return newGraph.cache();
 	}
 	
+	private static GraphFrame minimize(SparkSession sparkSession, GraphFrame graph) {
+		sparkSession.conf().set("spark.sql.crossJoin.enabled", "true");
 
-//	private static GraphFrame max(SparkSession sparkSession, GraphFrame graph, String level) {
-//		return agg(sparkSession, graph, level, "MAX");
-//	}
-//	
-//	private static GraphFrame avg(SparkSession sparkSession, GraphFrame graph, String level) {
-//		return agg(sparkSession, graph, level, "AVG");
-//	}
-//	
-//	private static GraphFrame count(SparkSession sparkSession, GraphFrame graph, String level) {
-//		return agg(sparkSession, graph, level, "COUNT");
-//	}
-//	
-//	private static GraphFrame agg(SparkSession sparkSession, GraphFrame graph, String level, String agg) {
-//		GraphFrame newGraph = rollUp(sparkSession, graph, level);
-//		newGraph.vertices().createOrReplaceTempView("v_table");
-//		
-//		return null;
-//	}
+		Dataset<Row> callTriplets = graph.triplets()
+				.filter("edge.label = 'calledBy' OR edge.label = 'integratedBy' OR edge.label = 'atTime'");
+		callTriplets.createOrReplaceTempView("call_triplets");
+	
+		Dataset<Row> calls = graph.vertices().filter("type = 'call'").cache();
+		calls.createOrReplaceTempView("calls");
+		
+		Dataset<Row> outDegrees = sparkSession.sql("SELECT c.src.id AS src, c.edge.label AS label, \n"
+				+ "c.dst.id AS dst, COUNT(*) AS count \n"
+				+ "		  FROM call_triplets c \n"
+				+ "		  GROUP BY c.src.id, c.edge.label, c.dst.id")
+				.cache();
+		outDegrees.createOrReplaceTempView("out_degrees");
+		
+		Dataset<Row> outMatches = sparkSession.sql("SELECT o1.src AS c1, o2.src AS c2, COUNT(*) AS count \n"
+				+ "FROM out_degrees o1 JOIN out_degrees o2 \n"
+				+ "ON o1.label = o2.label AND o1.dst = o2.dst AND o1.count = o2.count \n"
+				+ "GROUP BY o1.src, o2.src");
+		outMatches.createOrReplaceTempView("out_matches");
+		
+		Dataset<Row> outCount = sparkSession.sql("SELECT o1.src AS c, COUNT(*) AS count \n"
+				+ "FROM out_degrees o1 \n"
+				+ "GROUP BY o1.src");
+		outCount.createOrReplaceTempView("out_count");
+		
+		outDegrees.unpersist();
+		
+		Dataset<Row> eqCalls = sparkSession.sql("SELECT o1.c1 AS c1, o1.c2 AS c2 \n"
+				+ "FROM out_matches o1 JOIN out_count o2 \n"
+				+ "ON o1.c1 = o2.c AND o1.count = o2.count")
+				.cache();
+		eqCalls.createOrReplaceTempView("eq_calls");
+		
+		Dataset<Row> durations = sparkSession.sql("SELECT c.id AS id, c.duration AS duration, MIN(p.c2) as minId \n"
+				+ "FROM eq_calls p JOIN calls c \n"
+				+ "ON p.c1 = c.id \n"
+				+ "GROUP BY c.id, c.duration")
+				.cache();
+		durations.createOrReplaceTempView("durations");
+		
+		eqCalls.unpersist();
+		calls.unpersist();
+		
+		Dataset<Row> explodedDurations = sparkSession.sql("SELECT d.minId AS minId, \n"
+				+ "explode(d.duration) AS duration \n"
+				+ "FROM durations d \n")
+				.cache();
+		explodedDurations.createOrReplaceTempView("exploded_durations");
+				
+		sparkSession.sql("SELECT d.minId AS id, \n"
+				+ "split(concat_ws(',', collect_list(concat_ws(',', CAST(d.duration AS string)))), ',') AS duration \n"
+				+ "FROM exploded_durations d \n"
+				+ "GROUP BY d.minId")
+				.createOrReplaceTempView("exploded_durations_aux");
+		
+		sparkSession.sql("SELECT d.id AS id, \n"
+				+ "explode(d.duration) AS duration \n"
+				+ "FROM exploded_durations_aux d")
+				.createOrReplaceTempView("exploded_new_durations");
+		
+		Dataset<Row> newCallNodes = sparkSession.sql("SELECT d.id AS id, 'call' AS type, NULL AS label, \n"
+				+ "NULL AS level, NULL AS value, \n"
+				+ "collect_list(CAST(d.duration AS integer)) AS duration \n"
+				+ "FROM exploded_new_durations d \n"
+				+ "GROUP BY d.id")
+				.cache();
 
-//	private static GraphFrame rollUp(SparkSession sparkSession, GraphFrame graph, String level) {
-//		if (timesHierarchy.contains(level)) {
-//			return rollUp(sparkSession, graph, level, "dateTime", timesHierarchy);
-//		} else if (locationsHierarchy.contains(level)) {
-//			return rollUp(sparkSession, graph, level, "name", locationsHierarchy);
-//		} else if (operatorsHierarchy.contains(level)) {
-//			return rollUp(sparkSession, graph, level, "name", operatorsHierarchy);
-//		}
-//		throw new IllegalArgumentException("Unknown level: " + level);
-//	}
-//	
-//	private static GraphFrame rollUpLocation(SparkSession sparkSession, GraphFrame schemaGraph, GraphFrame graph, String level) {
-//		GraphFrame newGraph = graph;
-//		String bottom = "phone";
-//		
-//		newGraph.triplets().filter("src.type = schemaInstance").createTempView("schema_instance_triplets");
-//		Dataset<Row> idPairs = sparkSession
-//		for (int i = 1; i < hierarchy.size() && !hierarchy.get(i - 1).equals(level); i++) {
-//			String nextLevel = hierarchy.get(i);
-//
-//			newGraph.triplets().createOrReplaceTempView("t_table");
-//
-//			Dataset<Row> idPairs = sparkSession.sql("SELECT src.id as srcId, dst.id as dstId, edge.label as label FROM t_table WHERE "
-//					+ "src.type = schemaInstance" 
-//					+ "ANY (src.type) = '" + bottom + "'" + " dst.type = '" + nextLevel + "'");
-//			idPairs.createOrReplaceTempView("id_pairs");
-//			
-//			Dataset<Row> newEdges = sparkSession
-//					.sql("SELECT t_table.src.id as src, COALESCE(v.dstId, t_table.dst.id) as dst, COALESCE(v.label, edge.label) as label "
-//							+ "FROM  t_table LEFT OUTER JOIN id_pairs v ON t_table.dst.id = v.srcId").distinct();
-//
-//			newGraph.vertices().createOrReplaceTempView("v_table");
-//			Dataset<Row> newVertices = sparkSession.sql("SELECT * FROM v_table " + "WHERE type <> '" + bottom + "'");
-//
-//			newGraph = GraphFrame.apply(newVertices, newEdges);
-//			bottom = nextLevel;
-//		}
-//		return newGraph;
+		explodedDurations.unpersist();
+		
+		Dataset<Row> triplets = graph.triplets().filter("src.type = 'call'");
+		triplets.createOrReplaceTempView("triplets");
+		
+		Dataset<Row> newEdges = sparkSession.sql("SELECT d.minId AS src, t.dst.id AS dst, t.edge.label AS label \n"
+		 		+ "FROM durations d JOIN triplets t \n"
+		 		+ "ON d.id = t.src.id")
+				.cache();
+		
+		durations.unpersist();
 
-//	private static GraphFrame rollUp(SparkSession sparkSession, GraphFrame graph, String level, String fieldName,
-//			List<String> hierarchy) {
-//		String bottom = hierarchy.get(0);
-//		GraphFrame newGraph = graph;
-//		for (int i = 1; i < hierarchy.size() && !hierarchy.get(i - 1).equals(level); i++) {
-//			String nextLevel = hierarchy.get(i);
-//
-//			newGraph.triplets().createOrReplaceTempView("t_table");
-//
-//			Dataset<Row> idPairs = sparkSession.sql("SELECT src.id as srcId, dst.id as dstId, edge.label as label FROM t_table WHERE src.type = '"
-//					+ bottom + "'" + " AND dst.type = '" + nextLevel + "'");
-//			idPairs.createOrReplaceTempView("id_pairs");
-//			
-//			Dataset<Row> newEdges = sparkSession
-//					.sql("SELECT t_table.src.id as src, COALESCE(v.dstId, t_table.dst.id) as dst, COALESCE(v.label, edge.label) as label "
-//							+ "FROM  t_table LEFT OUTER JOIN id_pairs v ON t_table.dst.id = v.srcId").distinct();
-//
-//			newGraph.vertices().createOrReplaceTempView("v_table");
-//			Dataset<Row> newVertices = sparkSession.sql("SELECT * FROM v_table " + "WHERE type <> '" + bottom + "'");
-//
-//			newGraph = GraphFrame.apply(newVertices, newEdges);
-//			bottom = nextLevel;
-//		}
-//		return newGraph;
-//	}
+		newEdges.select("label").createOrReplaceTempView("new_edge_labels");
+		
+		Dataset<Row> otherVertices = graph.vertices().filter("type <> 'call'");
+		
+		graph.edges().createOrReplaceTempView("edges");
+		Dataset<Row> otherEdges = sparkSession.sql("SELECT * FROM edges e \n"
+				+ "WHERE e.label NOT IN (SELECT * FROM new_edge_labels)");
+		
+		GraphFrame newGraph = GraphFrame.apply(newCallNodes.union(otherVertices), newEdges.union(otherEdges));
 
-		// String query = "SELECT MIN(id) as id, '" + level + "' as type, ";
-		// String cols = vertexFields.stream().map(field -> {
-		// if (field.equals(fieldName)) {
-		// return fieldName;
-		// }
-		// return "NULL as " + field;
-		// }).collect(Collectors.joining(", "));
-		// query += cols;
-		//
-		// Dataset<Row> minVertices = sparkSession
-		// .sql(query + " FROM v_table " + "WHERE type = '" + level + "' GROUP BY " +
-		// fieldName);
-		// minVertices.createOrReplaceTempView("v_min_table");
-		// System.out.println(minVertices.count());
-		//
-		// Dataset<Row> otherVertices = sparkSession.sql("SELECT * FROM v_table " +
-		// "WHERE type <> '" + level + "'");
-		//
-		// Dataset<Row> newVertices = otherVertices.union(minVertices);
-		//
-		// graph.edges().createOrReplaceTempView("e_table");
-		// graph.triplets().createOrReplaceTempView("t_table");
-		//
-		// Dataset<Row> newEdges = sparkSession.sql(
-		// "SELECT COALESCE(v1.id, t_table.src.id) as src, COALESCE(v2.id,
-		// t_table.dst.id) as dst, edge.label as label "
-		// + "FROM t_table FULL OUTER JOIN v_min_table v1 ON t_table.src." + fieldName +
-		// " = v1."
-		// + fieldName + " FULL OUTER JOIN v_min_table v2 ON t_table.dst." + fieldName +
-		// "= v2."
-		// + fieldName);
-		//
-		// return GraphFrame.apply(newVertices, newEdges);
-//	}
+		newCallNodes.unpersist();
+		newEdges.unpersist();
+		
+		return newGraph.cache();
+	}
+	
+	private static void printMemory() {
+		Runtime runtime = Runtime.getRuntime();
+
+		NumberFormat format = NumberFormat.getInstance();
+
+		StringBuilder sb = new StringBuilder();
+		long maxMemory = runtime.maxMemory();
+		long allocatedMemory = runtime.totalMemory();
+		long freeMemory = runtime.freeMemory();
+
+		sb.append("free memory: " + format.format(freeMemory / 1024) + "\n");
+		sb.append("allocated memory: " + format.format(allocatedMemory / 1024) + "\n");
+		sb.append("max memory: " + format.format(maxMemory / 1024) + "\n");
+		sb.append("total free memory: " + format.format((freeMemory + (maxMemory - allocatedMemory)) / 1024) + "\n");
+		
+		System.out.println(sb.toString());
+	}
 }
