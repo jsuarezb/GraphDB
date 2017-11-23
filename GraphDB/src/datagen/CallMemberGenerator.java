@@ -16,6 +16,9 @@ import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+/**
+ * This class was used to generate the data for the calls table (and datetime one).
+ */
 public class CallMemberGenerator {
 
 	private static int MIN_CALL_NUM = 2;

@@ -12,6 +12,9 @@ import java.util.Random;
 import java.util.Scanner;
 import java.util.Set;
 
+/**
+ * This class was used to generate the data for the emisorreceptor table.
+ */
 public class EmisorReceptorGenerator {
 
 	public static void main(String[] args) throws IOException {

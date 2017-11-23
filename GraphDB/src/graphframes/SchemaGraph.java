@@ -15,6 +15,9 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.graphframes.GraphFrame;
 
+/**
+ * This class creates the schema graph as in the paper.
+ */
 public class SchemaGraph {
 
 	private long id = 1L;
