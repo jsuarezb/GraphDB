@@ -16,13 +16,17 @@ import java.util.Set;
  * This class was used to generate the data for the emisorreceptor table.
  */
 public class EmisorReceptorGenerator {
+	
+	private static final String PATH = "../lib/";
+	private static final int USER_COUNT = 7500;
+	private static final int PHONE_COUNT = 10000;
 
 	public static void main(String[] args) throws IOException {
-		Scanner cities = new Scanner(Paths.get("lib/cities.csv").toFile());
-		Scanner countries = new Scanner(Paths.get("lib/countries.csv").toFile());
-		Scanner firstNames = new Scanner(Paths.get("lib/first_names.csv").toFile());
-		Scanner lastNames = new Scanner(Paths.get("lib/last_names.csv").toFile());
-		Scanner operators = new Scanner(Paths.get("lib/operators.csv").toFile());
+		Scanner cities = new Scanner(Paths.get(PATH + "cities.csv").toFile());
+		Scanner countries = new Scanner(Paths.get(PATH + "countries.csv").toFile());
+		Scanner firstNames = new Scanner(Paths.get(PATH + "first_names.csv").toFile());
+		Scanner lastNames = new Scanner(Paths.get(PATH + "last_names.csv").toFile());
+		Scanner operators = new Scanner(Paths.get(PATH + "operators.csv").toFile());
 		
 		List<String> countriesList = new ArrayList<>();
 		while (countries.hasNextLine()) {
@@ -58,7 +62,7 @@ public class EmisorReceptorGenerator {
 		
 		Set<String> users = new HashSet<>();
 
-		while (users.size() < 7500) {
+		while (users.size() < USER_COUNT) {
 			Collections.shuffle(fstNamesList);
 			Collections.shuffle(lastNamesList);
 			users.add(fstNamesList.get(0) + " " + lastNamesList.get(0));
@@ -77,7 +81,7 @@ public class EmisorReceptorGenerator {
 		Set<String> phones = new HashSet<>();
 		
 		Random rand = new Random();
-		while (phones.size() < 10000) {
+		while (phones.size() < PHONE_COUNT) {
 			int fst = rand.nextInt(900) + 100;
 			int snd = rand.nextInt(900) + 100;
 			int trd = rand.nextInt(9000) + 1000;
@@ -122,7 +126,7 @@ public class EmisorReceptorGenerator {
 		}
 		
 		for (int i = 1; i <= 3; i++) {
-			Files.write(Paths.get(String.format("lib/emisorreceptor%d.sql", i)), builders[i - 1].toString().getBytes(), StandardOpenOption.CREATE);
+			Files.write(Paths.get(String.format(PATH + "emisorreceptor%d.sql", i)), builders[i - 1].toString().getBytes(), StandardOpenOption.CREATE);
 		}
 
 		
