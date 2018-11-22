@@ -1,6 +1,8 @@
-DROP TABLE grupo2v3.Call;
-DROP TABLE grupo2v3.EmisorReceptor;
-DROP TABLE grupo2v3.DateTime;
+DROP TABLE grupo2v3.Call CASCADE;
+DROP TABLE grupo2v3.EmisorReceptor CASCADE;
+DROP TABLE grupo2v3.DateTime CASCADE;
+
+CREATE SCHEMA grupo2v3;
 
 CREATE TABLE grupo2v3.DateTime (
     Id     SERIAL PRIMARY KEY,

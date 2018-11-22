@@ -1,3 +1,4 @@
+\encoding UTF8;
 INSERT INTO grupo2v2.EmisorReceptor (TelNum, Operator, UserName, City, Country) VALUES ('997-756-4125', 'Roombo', 'Amity Oseman', 'Baluk', 'Thailand');
 INSERT INTO grupo2v2.EmisorReceptor (TelNum, Operator, UserName, City, Country) VALUES ('299-138-5969', 'Geba', 'Egbert Braunes', 'Vodnjan', 'Philippines');
 INSERT INTO grupo2v2.EmisorReceptor (TelNum, Operator, UserName, City, Country) VALUES ('744-498-5846', 'Yakijo', 'Sheilah Colthard', 'Riversdale', 'Philippines');

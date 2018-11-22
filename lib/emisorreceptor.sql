@@ -1,3 +1,4 @@
+\encoding UTF8;
 insert into EmisorReceptor (TelNum, Operator, UserName, City, Country) values ('999-741-2901', 'BlogXS', 'Alexi Caps', 'Nghĩa Hành', 'Vietnam');
 insert into EmisorReceptor (TelNum, Operator, UserName, City, Country) values ('141-612-9750', 'Kazu', 'Sacha Wearn', 'Fengmu', 'China');
 insert into EmisorReceptor (TelNum, Operator, UserName, City, Country) values ('119-762-5529', 'Bubblebox', 'Micky Askam', 'Sandymount', 'Ireland');
