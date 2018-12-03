@@ -18,8 +18,9 @@ import java.util.Set;
 public class EmisorReceptorGenerator {
 	
 	private static final String PATH = "../lib/";
-	private static final int USER_COUNT = 7500;
-	private static final int PHONE_COUNT = 10000;
+	private static final int USER_COUNT = 200;
+	private static final int PHONE_COUNT = 300;
+	private static final String FILE_NAME = "emisorreceptor_final";
 
 	public static void main(String[] args) throws IOException {
 		Scanner cities = new Scanner(Paths.get(PATH + "cities.csv").toFile());
@@ -106,27 +107,28 @@ public class EmisorReceptorGenerator {
 			String operator = operatorsList.get(0);
 			
 			String rowValues = new StringBuilder()
+			        .append("'")
 					.append(phone)
-		            .append(", ")
+		            .append("', '")
 		            .append(operator)
-		            .append(", ")
+		            .append("', '")
 		            .append(user)
-		            .append(", ")
+		            .append("', '")
 		            .append(city)
-		            .append(", ")
+		            .append("', '")
 		            .append(country)
-		            .append(");\n")
+		            .append("');\n")
 		            .toString();
 			for (int i = 1; i <= 3; i++) {
 				builders[i - 1]
-						.append("INSERT INTO grupo2v" + i + ".EmisorReceptor (TelNum, Operator, UserName, City, Country) VALUES (")
+						.append("INSERT INTO EmisorReceptor (TelNum, Operator, UserName, City, Country) VALUES (")
 						.append(rowValues)
 						.toString();
 			}
 		}
 		
 		for (int i = 1; i <= 3; i++) {
-			Files.write(Paths.get(String.format(PATH + "emisorreceptor%d.sql", i)), builders[i - 1].toString().getBytes(), StandardOpenOption.CREATE);
+			Files.write(Paths.get(String.format(PATH + FILE_NAME + ".sql", i)), builders[i - 1].toString().getBytes(), StandardOpenOption.CREATE);
 		}
 
 		
@@ -135,5 +137,7 @@ public class EmisorReceptorGenerator {
 		firstNames.close();
 		lastNames.close();
 		operators.close();
+		
+		System.out.println("Finished!");
 	}
 }
